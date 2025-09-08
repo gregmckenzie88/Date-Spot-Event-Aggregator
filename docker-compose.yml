@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  datespot-aggregator:
+    build: .
+    container_name: datespot-aggregator
+    env_file:
+      - .env
+    volumes:
+      # Optional: Mount logs directory for persistent logging
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - datespot-network
+
+  # Optional: Scheduled runner using cron
+  datespot-scheduler:
+    build: .
+    container_name: datespot-scheduler
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    command: ["python", "scheduler.py"]
+    restart: unless-stopped
+    networks:
+      - datespot-network
+    profiles:
+      - scheduler
+
+networks:
+  datespot-network:
+    driver: bridge
+
+volumes:
+  logs:
+    driver: local
