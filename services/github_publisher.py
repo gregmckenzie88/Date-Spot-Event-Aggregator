@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Optional
 import requests
+import pytz
 from config import Config
 from utils.logger import setup_logger
 
@@ -116,8 +117,10 @@ class GitHubPublisher:
             # Encode content as base64
             encoded_content = base64.b64encode(function_code.encode('utf-8')).decode('utf-8')
             
-            # Prepare commit message
-            commit_message = f"Update schema from DateSpot Aggregator - {datetime.now().isoformat()}"
+            # Prepare commit message with Toronto timezone
+            toronto_tz = pytz.timezone('America/Toronto')
+            toronto_time = datetime.now(toronto_tz)
+            commit_message = f"Update schema from DateSpot Aggregator - {toronto_time.isoformat()}"
             
             # Prepare request payload
             payload = {

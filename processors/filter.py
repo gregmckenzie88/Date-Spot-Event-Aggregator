@@ -33,26 +33,42 @@ class EventFilter:
         
         # Process each date
         for date, events in results_by_date.items():
-            logger.info(f"Filtering {len(events)} events for {date}")
+            logger.info(f"   📅 Filtering {len(events)} events for {date}")
             total_original += len(events)
             
             # Filter out events with excluded categories
             filtered_events = []
+            excluded_count = 0
+            uncategorized_count = 0
+            
             for event in events:
                 event_category = event.get('event_category')
                 
-                if event_category not in self.excluded_categories:
+                if event_category in self.excluded_categories:
+                    # Skip events in excluded categories
+                    excluded_count += 1
+                    logger.debug(f"Excluding event {event.get('id')} with category: {event_category}")
+                elif event_category is None:
+                    # Keep events without categories (they'll be handled later)
+                    uncategorized_count += 1
                     filtered_events.append(event)
                 else:
-                    logger.debug(f"Excluding event {event.get('id')} with category: {event_category}")
+                    # Keep events with valid categories
+                    filtered_events.append(event)
             
-            # Only include the date if there are remaining events
+            # Always include the date if there are any events (don't drop dates entirely)
             if filtered_events:
                 filtered_results[date] = filtered_events
                 total_filtered += len(filtered_events)
-                logger.info(f"Kept {len(filtered_events)} events for {date} after filtering")
+                logger.info(f"   ✓ Kept {len(filtered_events)} events for {date} after filtering")
+                if excluded_count > 0:
+                    logger.info(f"      {excluded_count} events excluded due to category")
+                if uncategorized_count > 0:
+                    logger.info(f"      {uncategorized_count} events kept without categories")
             else:
-                logger.info(f"No events remaining for {date} after filtering")
+                logger.warning(f"   ⚠️ No events remaining for {date} after filtering ({excluded_count} excluded)")
+                # Still include the date but with empty events list to preserve date structure
+                filtered_results[date] = []
         
         logger.info(f"Event filtering complete: {total_filtered}/{total_original} events passed filter")
         

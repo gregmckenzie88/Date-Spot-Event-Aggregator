@@ -45,7 +45,12 @@ class SchemaMerger:
             merged_results[date] = []
             total_events += len(events)
             
-            logger.info(f"Processing {len(events)} events for {date}")
+            logger.info(f"   📅 Processing {len(events)} events for {date}")
+            
+            # Check if we have categories for this date
+            date_has_categories = date in categories_data and categories_data[date]
+            if not date_has_categories:
+                logger.warning(f"   ⚠️ No categories found for {date}, events will have null categories")
             
             # Process each event for this date
             for event in events:
@@ -59,7 +64,7 @@ class SchemaMerger:
                 event_category = None
                 
                 # Check if we have categories data for this date
-                if date in categories_data:
+                if date_has_categories:
                     date_categories = categories_data[date]
                     
                     # Handle different data structures
@@ -81,6 +86,7 @@ class SchemaMerger:
                     merged_event['event_category'] = None
                     logger.debug(f"No category found for event ID {event_id}")
                 
+                # Always include the event, even without a category
                 merged_results[date].append(merged_event)
         
         logger.info(f"Schema merge complete: {categorized_events}/{total_events} events categorized")

@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import requests
+import pytz
 from config import Config
 from utils.logger import setup_logger
 
@@ -18,7 +19,7 @@ class BlogTOAPI:
     
     def generate_dates(self, number_of_days: int) -> List[str]:
         """
-        Generate dynamic dates starting from today.
+        Generate dynamic dates starting from today in Toronto timezone.
         
         Args:
             number_of_days: Number of days to generate
@@ -27,13 +28,19 @@ class BlogTOAPI:
             List of date strings in YYYY-MM-DD format
         """
         dates = []
-        today = datetime.now()
+        
+        # Get current time in Toronto timezone
+        toronto_tz = pytz.timezone('America/Toronto')
+        today = datetime.now(toronto_tz)
+        
+        logger.info(f"   🕐 Current Toronto time: {today.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         
         for i in range(number_of_days):
             current_date = today + timedelta(days=i)
             date_str = current_date.strftime('%Y-%m-%d')
             dates.append(date_str)
         
+        logger.info(f"   📅 Generated dates: {dates[0]} to {dates[-1]}")
         return dates
     
     async def fetch_events_for_date(self, date: str) -> List[Dict[str, Any]]:

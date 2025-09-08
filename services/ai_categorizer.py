@@ -110,8 +110,25 @@ class AICategorizer:
         """
         logger.info("Starting AI categorization process...")
         
+        # Calculate total events to check if we need to process in batches
+        total_events = sum(len(events) for events in results_by_date.values())
+        logger.info(f"   📊 Total events to categorize: {total_events} across {len(results_by_date)} dates")
+        
+        # If we have too many events, process in smaller batches by date
+        if total_events > 100:  # Arbitrary threshold to prevent token limit issues
+            logger.info("   🔄 Large dataset detected, processing dates in batches...")
+            return await self._categorize_in_batches(results_by_date)
+        else:
+            return await self._categorize_single_batch(results_by_date)
+    
+    async def _categorize_single_batch(self, results_by_date: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, str]]:
+        """Process all events in a single AI request"""
         # Create reduced payload
         reduced_payload = self.create_reduced_payload(results_by_date)
+        
+        # Log payload size for debugging
+        payload_size = len(json.dumps(reduced_payload))
+        logger.info(f"   📊 Payload size: {payload_size} characters")
         
         # Prepare system prompt
         system_prompt = f"""You are an expert event categorization system. Your task is to categorize event descriptions into exactly one of these categories:
@@ -143,6 +160,31 @@ Rules:
             ]
         }
         
+        return await self._make_ai_request(payload, reduced_payload)
+    
+    async def _categorize_in_batches(self, results_by_date: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, str]]:
+        """Process events in batches by date to avoid token limits"""
+        all_categories = {}
+        
+        # Process each date separately
+        for date, events in results_by_date.items():
+            logger.info(f"   📅 Processing batch for {date} ({len(events)} events)")
+            
+            # Create payload for just this date
+            single_date_data = {date: events}
+            categories = await self._categorize_single_batch(single_date_data)
+            
+            # Merge results
+            if categories and date in categories:
+                all_categories[date] = categories[date]
+            else:
+                logger.warning(f"   ⚠️ No categories returned for {date}")
+                all_categories[date] = []
+        
+        return all_categories
+    
+    async def _make_ai_request(self, payload: Dict[str, Any], reduced_payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Make the actual AI request and parse response"""
         headers = {
             "Content-Type": "application/json",
             "x-api-key": self.api_key,
@@ -174,11 +216,17 @@ Rules:
                     categorized_data = json.loads(ai_response)
                     logger.info("   ✓ Successfully parsed AI categorization response")
                     
-                    # Count categorized events
-                    total_categorized = sum(len(date_data) for date_data in categorized_data.get('results_by_date', {}).values())
-                    logger.info(f"   📊 AI categorized {total_categorized} events")
+                    # Count categorized events and validate completeness
+                    ai_results = categorized_data.get('results_by_date', {})
+                    total_categorized = sum(len(date_data) for date_data in ai_results.values())
+                    total_input = sum(len(events) for events in reduced_payload.get('results_by_date', {}).values())
                     
-                    return categorized_data.get('results_by_date', {})
+                    logger.info(f"   📊 AI categorized {total_categorized}/{total_input} events")
+                    
+                    if total_categorized < total_input:
+                        logger.warning(f"   ⚠️ AI response incomplete: {total_categorized}/{total_input} events categorized")
+                    
+                    return ai_results
                 except json.JSONDecodeError as e:
                     logger.error(f"   ❌ Failed to parse AI response as JSON: {e}")
                     logger.error(f"   📄 AI response: {ai_response[:500]}...")
@@ -188,5 +236,5 @@ Rules:
                 return {}
         
         except Exception as error:
-            logger.error(f"Error during AI categorization: {error}")
+            logger.error(f"   ❌ Error during AI categorization: {error}")
             return {}

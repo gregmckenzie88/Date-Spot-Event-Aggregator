@@ -6,10 +6,12 @@ services:
     container_name: datespot-aggregator
     env_file:
       - .env
+    environment:
+      - TZ=America/Toronto
     volumes:
       # Optional: Mount logs directory for persistent logging
       - ./logs:/app/logs
-    restart: unless-stopped
+    restart: "no"
     networks:
       - datespot-network
 
@@ -19,6 +21,8 @@ services:
     container_name: datespot-scheduler
     env_file:
       - .env
+    environment:
+      - TZ=America/Toronto
     volumes:
       - ./logs:/app/logs
     command: ["python", "scheduler.py"]

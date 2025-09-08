@@ -3,6 +3,7 @@ import asyncio
 import schedule
 import time
 from datetime import datetime
+import pytz
 from main import DateSpotAggregator
 from config import Config, ConfigError
 from utils.logger import setup_logger
@@ -12,12 +13,13 @@ logger = setup_logger(__name__)
 
 async def run_aggregator_job():
     """Run the aggregator workflow as a scheduled job"""
-    job_start_time = datetime.now()
+    toronto_tz = pytz.timezone('America/Toronto')
+    job_start_time = datetime.now(toronto_tz)
     
     try:
         logger.info("=" * 80)
         logger.info("🕐 SCHEDULED DATESPOT AGGREGATOR RUN")
-        logger.info(f"🕐 Started at: {job_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"🕐 Started at: {job_start_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         logger.info("=" * 80)
         
         # Validate configuration before starting
@@ -28,7 +30,7 @@ async def run_aggregator_job():
         aggregator = DateSpotAggregator()
         result = await aggregator.run_workflow()
         
-        job_duration = (datetime.now() - job_start_time).total_seconds()
+        job_duration = (datetime.now(toronto_tz) - job_start_time).total_seconds()
         
         if result:
             total_events = sum(len(events) for events in result.get('results_by_date', {}).values())
@@ -45,14 +47,14 @@ async def run_aggregator_job():
             logger.warning("=" * 80)
     
     except ConfigError as error:
-        job_duration = (datetime.now() - job_start_time).total_seconds()
+        job_duration = (datetime.now(toronto_tz) - job_start_time).total_seconds()
         logger.error("=" * 80)
         logger.error("❌ SCHEDULED RUN FAILED - CONFIGURATION ERROR")
         logger.error(str(error))
         logger.error(f"⏱️ Failed after: {job_duration:.1f} seconds")
         logger.error("=" * 80)
     except Exception as error:
-        job_duration = (datetime.now() - job_start_time).total_seconds()
+        job_duration = (datetime.now(toronto_tz) - job_start_time).total_seconds()
         logger.error("=" * 80)
         logger.error("❌ SCHEDULED RUN FAILED")
         logger.error(f"💥 Error: {error}")
