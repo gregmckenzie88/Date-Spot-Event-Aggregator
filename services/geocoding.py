@@ -4,6 +4,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import requests
 from config import Config
 from utils.logger import setup_logger
+from services.supabase_cache import SupabaseCache
 
 logger = setup_logger(__name__)
 
@@ -15,10 +16,11 @@ class GeocodingService:
         self.api_key = Config.GOOGLE_MAPS_API_KEY
         self.base_url = Config.GOOGLE_MAPS_API_BASE
         self.request_delay = Config.GEOCODING_REQUEST_DELAY
+        self.cache = SupabaseCache()
     
     async def geocode_venue(self, venue_name: str) -> Optional[Dict[str, float]]:
         """
-        Geocode a venue using Google Maps API.
+        Geocode a venue using Google Maps API with caching.
         
         Args:
             venue_name: Name of the venue to geocode
@@ -30,9 +32,16 @@ class GeocodingService:
             logger.warning("No venue name provided for geocoding")
             return None
         
+        # Check cache first
+        cached_coordinates = await self.cache.get_geocoding_cache(venue_name)
+        if cached_coordinates:
+            return cached_coordinates
+        
+        # Cache miss - make API call
+        logger.info(f"○ Cache MISS: Making Google Maps API call for \"{venue_name}\"")
+        
         try:
             search_query = f"{venue_name}, Toronto Canada"
-            logger.info(f"Geocoding venue: \"{venue_name}\"")
             
             # Prepare request parameters
             params = {
@@ -65,6 +74,10 @@ class GeocodingService:
                         'lng': location['lng']
                     }
                     logger.info(f"Successfully geocoded {venue_name}: {coordinates}")
+                    
+                    # Store in cache
+                    await self.cache.set_geocoding_cache(venue_name, coordinates)
+                    
                     return coordinates
                 else:
                     logger.warning(f"No geometry.location in result for {venue_name}")

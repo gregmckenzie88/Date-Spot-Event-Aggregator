@@ -5,6 +5,7 @@ from typing import Dict, List, Any
 import requests
 from config import Config
 from utils.logger import setup_logger
+from services.supabase_cache import SupabaseCache
 
 logger = setup_logger(__name__)
 
@@ -18,6 +19,7 @@ class AICategorizer:
         self.model = Config.ANTHROPIC_MODEL
         self.max_tokens = Config.ANTHROPIC_MAX_TOKENS
         self.temperature = Config.ANTHROPIC_TEMPERATURE
+        self.cache = SupabaseCache()
         
         # Event categories from the n8n workflow
         self.categories = [
@@ -73,7 +75,7 @@ class AICategorizer:
         
         return cleaned
     
-    def create_reduced_payload(self, results_by_date: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, str]]]:
+    def create_reduced_payload(self, results_by_date: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, Dict[str, str]]]:
         """
         Create reduced payload for LLM processing.
         
@@ -81,26 +83,25 @@ class AICategorizer:
             results_by_date: Full events data
             
         Returns:
-            Reduced payload with just ID and description
+            Reduced payload with just ID and description organized by date
         """
         logger.info("Creating reduced payload for LLM processing...")
         
         reduced_payload = {"results_by_date": {}}
         
         for date, events in results_by_date.items():
-            reduced_payload["results_by_date"][date] = []
+            reduced_payload["results_by_date"][date] = {}
             
             for event in events:
-                event_summary = {
-                    event['id']: f"{event['title']}: {self.cleanse_text(event['description_stripped'])}"
-                }
-                reduced_payload["results_by_date"][date].append(event_summary)
+                event_id = str(event['id'])
+                event_description = f"{event['title']}: {self.cleanse_text(event['description_stripped'])}"
+                reduced_payload["results_by_date"][date][event_id] = event_description
         
         return reduced_payload
     
     async def categorize_events(self, results_by_date: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, str]]:
         """
-        Categorize events using Claude AI.
+        Categorize events using Claude AI with caching.
         
         Args:
             results_by_date: Events data to categorize
@@ -110,19 +111,67 @@ class AICategorizer:
         """
         logger.info("Starting AI categorization process...")
         
-        # Calculate total events to check if we need to process in batches
+        # Calculate total events and check cache
         total_events = sum(len(events) for events in results_by_date.values())
         logger.info(f"   📊 Total events to categorize: {total_events} across {len(results_by_date)} dates")
         
-        # If we have too many events, process in smaller batches by date
-        if total_events > 100:  # Arbitrary threshold to prevent token limit issues
-            logger.info("   🔄 Large dataset detected, processing dates in batches...")
-            return await self._categorize_in_batches(results_by_date)
+        # Check cache for each event and separate cached vs uncached
+        cached_categories = {}
+        events_to_categorize = {}
+        cache_hits = 0
+        
+        for date, events in results_by_date.items():
+            cached_categories[date] = {}
+            events_to_categorize[date] = []
+            
+            for event in events:
+                event_id = event.get('id')
+                if event_id:
+                    cached_category = await self.cache.get_categorization_cache(event_id)
+                    if cached_category:
+                        cached_categories[date][event_id] = cached_category
+                        cache_hits += 1
+                    else:
+                        events_to_categorize[date].append(event)
+        
+        uncached_events = sum(len(events) for events in events_to_categorize.values())
+        logger.info(f"   📊 Cache results: {cache_hits} hits, {uncached_events} events need API categorization")
+        
+        # If all events are cached, return cached results
+        if uncached_events == 0:
+            logger.info("   ✓ All events found in cache, no API calls needed!")
+            return cached_categories
+        
+        # Process uncached events
+        new_categories = {}
+        if uncached_events > 100:  # Arbitrary threshold to prevent token limit issues
+            logger.info("   🔄 Large uncached dataset detected, processing dates in batches...")
+            new_categories = await self._categorize_in_batches(events_to_categorize)
         else:
-            return await self._categorize_single_batch(results_by_date)
+            new_categories = await self._categorize_single_batch(events_to_categorize)
+        
+        # Merge cached and new categories
+        final_categories = {}
+        for date in results_by_date.keys():
+            final_categories[date] = {}
+            # Add cached categories
+            if date in cached_categories and isinstance(cached_categories[date], dict):
+                final_categories[date].update(cached_categories[date])
+            # Add new categories
+            if date in new_categories and isinstance(new_categories[date], dict):
+                final_categories[date].update(new_categories[date])
+        
+        return final_categories
     
     async def _categorize_single_batch(self, results_by_date: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, str]]:
         """Process all events in a single AI request"""
+        # Skip if no events to process
+        total_uncached_events = sum(len(events) for events in results_by_date.values())
+        if total_uncached_events == 0:
+            return {}
+        
+        logger.info(f"   ○ Cache MISS: Making Claude AI API call for {total_uncached_events} events")
+        
         # Create reduced payload
         reduced_payload = self.create_reduced_payload(results_by_date)
         
@@ -160,7 +209,7 @@ Rules:
             ]
         }
         
-        return await self._make_ai_request(payload, reduced_payload)
+        return await self._make_ai_request(payload, reduced_payload, results_by_date)
     
     async def _categorize_in_batches(self, results_by_date: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, str]]:
         """Process events in batches by date to avoid token limits"""
@@ -179,11 +228,11 @@ Rules:
                 all_categories[date] = categories[date]
             else:
                 logger.warning(f"   ⚠️ No categories returned for {date}")
-                all_categories[date] = []
+                all_categories[date] = {}
         
         return all_categories
     
-    async def _make_ai_request(self, payload: Dict[str, Any], reduced_payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def _make_ai_request(self, payload: Dict[str, Any], reduced_payload: Dict[str, Any], original_events: Dict[str, List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """Make the actual AI request and parse response"""
         headers = {
             "Content-Type": "application/json",
@@ -226,6 +275,10 @@ Rules:
                     if total_categorized < total_input:
                         logger.warning(f"   ⚠️ AI response incomplete: {total_categorized}/{total_input} events categorized")
                     
+                    # Store successful categorizations in cache
+                    if original_events:
+                        await self._store_categorizations_in_cache(ai_results, original_events)
+                    
                     return ai_results
                 except json.JSONDecodeError as e:
                     logger.error(f"   ❌ Failed to parse AI response as JSON: {e}")
@@ -238,3 +291,19 @@ Rules:
         except Exception as error:
             logger.error(f"   ❌ Error during AI categorization: {error}")
             return {}
+    
+    async def _store_categorizations_in_cache(self, ai_results: Dict[str, Dict[str, str]], original_events: Dict[str, List[Dict[str, Any]]]) -> None:
+        """Store AI categorization results in cache"""
+        try:
+            stored_count = 0
+            for date, date_categories in ai_results.items():
+                for event_id, category in date_categories.items():
+                    success = await self.cache.set_categorization_cache(event_id, category)
+                    if success:
+                        stored_count += 1
+            
+            total_categories = sum(len(date_cats) for date_cats in ai_results.values())
+            logger.info(f"   💾 Cached {stored_count}/{total_categories} new categorizations")
+            
+        except Exception as error:
+            logger.warning(f"   ⚠️ Error storing categorizations in cache: {error}")

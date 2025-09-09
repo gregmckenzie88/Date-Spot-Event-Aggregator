@@ -4,3 +4,4 @@ python-dotenv>=1.0.0
 asyncio>=3.4.3
 schedule>=1.2.0
 pytz>=2023.3
+supabase>=2.3.0

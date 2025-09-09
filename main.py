@@ -16,6 +16,7 @@ from services.ai_categorizer import AICategorizer
 from processors.schema_merger import SchemaMerger
 from processors.filter import EventFilter
 from services.github_publisher import GitHubPublisher
+from services.supabase_cache import SupabaseCache
 
 # Set up logging
 logger = setup_logger(__name__)
@@ -33,6 +34,7 @@ class DateSpotAggregator:
         self.schema_merger = SchemaMerger()
         self.event_filter = EventFilter()
         self.github_publisher = GitHubPublisher()
+        self.cache = SupabaseCache()
     
     async def run_workflow(self) -> Dict[str, Any]:
         """
@@ -52,7 +54,7 @@ class DateSpotAggregator:
         try:
             # Step 1: Fetch events from BlogTO
             step_start = datetime.now(toronto_tz)
-            logger.info("🔵 STEP 1/8: FETCHING EVENTS FROM BLOGTO")
+            logger.info("🔵 STEP 1/9: FETCHING EVENTS FROM BLOGTO")
             logger.info(f"   ⏰ Step started at: {step_start.strftime('%H:%M:%S %Z')}")
             logger.info("   📋 Fetching events for the next 7 days with rate limiting...")
             
@@ -70,7 +72,7 @@ class DateSpotAggregator:
             
             # Step 2: Validate and clean data
             step_start = datetime.now(toronto_tz)
-            logger.info("🔵 STEP 2/8: VALIDATING AND CLEANING DATA")
+            logger.info("🔵 STEP 2/9: VALIDATING AND CLEANING DATA")
             logger.info(f"   ⏰ Step started at: {step_start.strftime('%H:%M:%S %Z')}")
             logger.info("   📋 Filtering events with required fields and adding numerical time...")
             
@@ -88,7 +90,7 @@ class DateSpotAggregator:
             
             # Step 3: Add location coordinates
             step_start = datetime.now(toronto_tz)
-            logger.info("🔵 STEP 3/8: ADDING LOCATION COORDINATES")
+            logger.info("🔵 STEP 3/9: ADDING LOCATION COORDINATES")
             logger.info(f"   ⏰ Step started at: {step_start.strftime('%H:%M:%S %Z')}")
             logger.info("   📋 Geocoding venue addresses using Google Maps API...")
             
@@ -107,7 +109,7 @@ class DateSpotAggregator:
             
             # Step 4: Enrich with weather data
             step_start = datetime.now(toronto_tz)
-            logger.info("🔵 STEP 4/8: ENRICHING WITH WEATHER DATA")
+            logger.info("🔵 STEP 4/9: ENRICHING WITH WEATHER DATA")
             logger.info(f"   ⏰ Step started at: {step_start.strftime('%H:%M:%S %Z')}")
             logger.info("   📋 Fetching weather data from Visual Crossing API...")
             
@@ -121,7 +123,7 @@ class DateSpotAggregator:
             
             # Step 5: Categorize events with AI
             step_start = datetime.now(toronto_tz)
-            logger.info("🔵 STEP 5/8: CATEGORIZING EVENTS WITH AI")
+            logger.info("🔵 STEP 5/9: CATEGORIZING EVENTS WITH AI")
             logger.info(f"   ⏰ Step started at: {step_start.strftime('%H:%M:%S %Z')}")
             logger.info("   📋 Using Claude AI to categorize events into predefined categories...")
             
@@ -135,7 +137,7 @@ class DateSpotAggregator:
             
             # Step 6: Merge schemas
             step_start = datetime.now(toronto_tz)
-            logger.info("🔵 STEP 6/8: MERGING EVENT DATA WITH CATEGORIES")
+            logger.info("🔵 STEP 6/9: MERGING EVENT DATA WITH CATEGORIES")
             logger.info(f"   ⏰ Step started at: {step_start.strftime('%H:%M:%S %Z')}")
             logger.info("   📋 Combining event data with AI-generated categories...")
             
@@ -157,7 +159,7 @@ class DateSpotAggregator:
             
             # Step 7: Filter unwanted categories
             step_start = datetime.now(toronto_tz)
-            logger.info("🔵 STEP 7/8: FILTERING UNWANTED CATEGORIES")
+            logger.info("🔵 STEP 7/9: FILTERING UNWANTED CATEGORIES")
             logger.info(f"   ⏰ Step started at: {step_start.strftime('%H:%M:%S %Z')}")
             logger.info(f"   📋 Removing events in excluded categories: {Config.EXCLUDED_CATEGORIES}")
             
@@ -169,9 +171,23 @@ class DateSpotAggregator:
             logger.info(f"   📊 Result: {filtered_count}/{merged_count} events after filtering")
             logger.info("-" * 60)
             
-            # Step 8: Publish to GitHub
+            # Step 8: Cache cleanup and statistics
             step_start = datetime.now(toronto_tz)
-            logger.info("🔵 STEP 8/8: PUBLISHING TO GITHUB")
+            logger.info("🔵 STEP 8/9: CACHE CLEANUP AND STATISTICS")
+            logger.info(f"   ⏰ Step started at: {step_start.strftime('%H:%M:%S %Z')}")
+            logger.info("   📋 Cleaning up expired cache entries and gathering statistics...")
+            
+            cleanup_stats = await self.cache.cleanup_expired_cache()
+            cache_stats = await self.cache.get_cache_stats()
+            
+            step_duration = (datetime.now(toronto_tz) - step_start).total_seconds()
+            logger.info(f"   ✅ STEP 8 COMPLETED in {step_duration:.1f}s")
+            logger.info(f"   📊 Cache stats: {cache_stats['total_active_entries']} active entries (geocoding: {cache_stats['active_geocoding_entries']}, categorization: {cache_stats['active_categorization_entries']})")
+            logger.info("-" * 60)
+            
+            # Step 9: Publish to GitHub
+            step_start = datetime.now(toronto_tz)
+            logger.info("🔵 STEP 9/9: PUBLISHING TO GITHUB")
             logger.info(f"   ⏰ Step started at: {step_start.strftime('%H:%M:%S %Z')}")
             logger.info(f"   📋 Publishing schema to {Config.GITHUB_REPO}/{Config.GITHUB_FILE_PATH}")
             
@@ -179,10 +195,10 @@ class DateSpotAggregator:
             
             step_duration = (datetime.now(toronto_tz) - step_start).total_seconds()
             if publish_success:
-                logger.info(f"   ✅ STEP 8 COMPLETED in {step_duration:.1f}s")
+                logger.info(f"   ✅ STEP 9 COMPLETED in {step_duration:.1f}s")
                 logger.info("   📊 Result: Schema successfully published to GitHub")
             else:
-                logger.warning(f"   ⚠️ STEP 8 COMPLETED WITH WARNINGS in {step_duration:.1f}s")
+                logger.warning(f"   ⚠️ STEP 9 COMPLETED WITH WARNINGS in {step_duration:.1f}s")
                 logger.warning("   📊 Result: GitHub publication failed")
             
             # Final summary

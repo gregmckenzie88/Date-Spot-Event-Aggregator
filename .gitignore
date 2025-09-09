@@ -274,3 +274,6 @@ data/
 output/
 results/
 downloads/
+
+# Cursor
+.cursor

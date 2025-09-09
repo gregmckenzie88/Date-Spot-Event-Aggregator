@@ -19,6 +19,10 @@ class Config:
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
     GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
     
+    # Supabase Configuration
+    SUPABASE_URL = os.getenv('SUPABASE_URL')
+    SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+    
     @classmethod
     def validate_required_env_vars(cls):
         """Validate that all required environment variables are set"""
@@ -26,7 +30,9 @@ class Config:
             'GOOGLE_MAPS_API_KEY': cls.GOOGLE_MAPS_API_KEY,
             'WEATHER_API_KEY': cls.WEATHER_API_KEY,
             'ANTHROPIC_API_KEY': cls.ANTHROPIC_API_KEY,
-            'GITHUB_TOKEN': cls.GITHUB_TOKEN
+            'GITHUB_TOKEN': cls.GITHUB_TOKEN,
+            'SUPABASE_URL': cls.SUPABASE_URL,
+            'SUPABASE_KEY': cls.SUPABASE_KEY
         }
         
         missing_vars = [var_name for var_name, var_value in required_vars.items() if not var_value]
@@ -42,12 +48,16 @@ Please set these environment variables by:
    WEATHER_API_KEY=your_weather_api_key
    ANTHROPIC_API_KEY=your_anthropic_api_key
    GITHUB_TOKEN=your_github_token
+   SUPABASE_URL=your_supabase_url
+   SUPABASE_KEY=your_supabase_key
 
 2. Or setting them as system environment variables:
    export GOOGLE_MAPS_API_KEY=your_google_maps_api_key
    export WEATHER_API_KEY=your_weather_api_key
    export ANTHROPIC_API_KEY=your_anthropic_api_key
    export GITHUB_TOKEN=your_github_token
+   export SUPABASE_URL=your_supabase_url
+   export SUPABASE_KEY=your_supabase_key
 
 3. Or in Docker, ensure your docker-compose.yml has them set in the environment section.
 """
@@ -93,3 +103,7 @@ Please set these environment variables by:
     ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
     ANTHROPIC_MAX_TOKENS = 64000
     ANTHROPIC_TEMPERATURE = 0.1
+    
+    # Cache Configuration
+    GEOCODING_CACHE_TTL_DAYS = 90
+    CATEGORIZATION_CACHE_TTL_DAYS = 30
